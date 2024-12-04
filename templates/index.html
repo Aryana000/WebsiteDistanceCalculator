@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distance and Bearing Calculator</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        /* Styling untuk body dan background */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #fce4ec;
+        }
+
+        /* Header bar */
+        .header {
+            background-color: #ff80ab;
+            color: #ffffff;
+            text-align: center;
+            padding: 15px 0;
+            font-size: 24px;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            position: fixed;
+            width: 100%;
+            top: 0;
+            z-index: 1001;
+        }
+
+        /* Styling panel input yang mengambang */
+        .up-panel {
+            position: fixed;
+            top: 10%;
+            right: 5%;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            width: 280px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .up-panel h1 {
+            text-align: center;
+            color: #ff4081;
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+
+        .coord-label {
+            color: #ff4081;
+            font-size: 16px;
+            margin-bottom: 5px;
+        }
+
+        .coord-input {
+            width: 100%;
+            padding: 8px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+
+        /* Styling untuk hasil jarak dan bearing */
+        #result {
+            background-color: #ff80ab;
+            color: white;
+            padding: 10px;
+            border-radius: 15px;
+            margin-top: 10px;
+            font-size: 16px;
+            text-align: center;
+        }
+
+        button {
+            background-color: #ff80ab;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 5px;
+            width: 100%;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background-color: #ff4081;
+        }
+
+        #map {
+            height: 100vh;
+            width: 100%;
+            margin-top: 60px; /* Memberikan ruang untuk header */
+        }
+    </style>
+</head>
+<body>
+
+     <!-- Header -->
+     <div class="header">
+        <span>Distance and Bearing Calculator</span>
+    </div>
+
+    <!-- Panel di kanan atas untuk input koordinat -->
+    <div class="up-panel">
+        <h1>Koordinat Input</h1>
+        <div>
+            <div class="coord-label">Latitude 1</div>
+            <input type="text" id="lat1" class="coord-input"><br>
+
+            <div class="coord-label">Longitude 1</div>
+            <input type="text" id="lon1" class="coord-input"><br>
+        </div>
+
+        <div>
+            <div class="coord-label">Latitude 2</div>
+            <input type="text" id="lat2" class="coord-input"><br>
+
+            <div class="coord-label">Longitude 2</div>
+            <input type="text" id="lon2" class="coord-input"><br>
+        </div>
+        
+        <button id="calculateBtn">Hitung</button>
+        <div id="result"></div>
+    </div>
+
+<!-- Peta -->
+<div id="map"></div>
+
+<script>
+    // Peta dengan Leaflet
+    var map = L.map('map').setView([0, 0], 2); // Set view ke koordinat default
+
+    // Menggunakan basemap ESRI
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed'
+    }).addTo(map);
+
+    var marker1, marker2, curveLine, clickCount = 0;
+
+    // Fungsi untuk menggambar garis melengkung
+    function drawCurve() {
+        if (marker1 && marker2) {
+            var latlngs = [
+                marker1.getLatLng(),
+                marker2.getLatLng()
+            ];
+            if (curveLine) {
+                map.removeLayer(curveLine);
+            }
+            curveLine = L.polyline(latlngs, {color: 'red', weight: 3, opacity: 0.7}).addTo(map);
+        }
+    }
+
+    // Fungsi untuk mendapatkan lokasi menggunakan API Nominatim
+    function getLocationName(lat, lon, callback) {
+        var url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`;
+        $.getJSON(url, function(data) {
+            if (data && data.display_name) {
+                callback(data.display_name);
+            } else {
+                callback("Lokasi tidak ditemukan");
+            }
+        });
+    }
+
+// Klik tombol "Draw & Calculate"
+$('#calculate').click(function () {
+        var lat1 = parseFloat($('#lat1').val());
+        var lon1 = parseFloat($('#lon1').val());
+        var lat2 = parseFloat($('#lat2').val());
+        var lon2 = parseFloat($('#lon2').val());
+
+        if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
+            if (marker1) map.removeLayer(marker1);
+            if (marker2) map.removeLayer(marker2);
+
+            marker1 = addMarker(lat1, lon1, "Point 1: (" + lat1 + ", " + lon1 + ")");
+            marker2 = addMarker(lat2, lon2, "Point 2: (" + lat2 + ", " + lon2 + ")");
+            drawLine(lat1, lon1, lat2, lon2);
+
+            var result = calculateDistanceAndBearing(lat1, lon1, lat2, lon2);
+            $('#result').html(`Distance: ${result.distance.toFixed(2)} km, Bearing: ${result.bearing.toFixed(2)}°`);
+
+            map.fitBounds([
+                [lat1, lon1],
+                [lat2, lon2]
+            ]); // Zoom otomatis ke marker
+        } else {
+            alert('Masukkan koordinat dengan benar!');
+        }
+    });
+
+    // Menangani klik pada peta
+    map.on('click', function (e) {
+        clickCount++;
+        
+        if (clickCount == 1) {
+            marker1 = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map);
+            document.getElementById('lat1').value = e.latlng.lat;
+            document.getElementById('lon1').value = e.latlng.lng;
+
+            getLocationName(e.latlng.lat, e.latlng.lng, function(location) {
+                alert("Titik 1: " + location);
+            });
+
+        } else if (clickCount == 2) {
+            marker2 = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map);
+            document.getElementById('lat2').value = e.latlng.lat;
+            document.getElementById('lon2').value = e.latlng.lng;
+
+            getLocationName(e.latlng.lat, e.latlng.lng, function(location) {
+                alert("Titik 2: " + location);
+            });
+
+            drawCurve();
+        } else if (clickCount == 3) {
+            clickCount = 0;
+            marker1 = marker2 = curveLine = null;
+            map.eachLayer(function(layer) {
+                if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            document.getElementById('lat1').value = '';
+            document.getElementById('lon1').value = '';
+            document.getElementById('lat2').value = '';
+            document.getElementById('lon2').value = '';
+
+            marker1 = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map);
+            document.getElementById('lat1').value = e.latlng.lat;
+            document.getElementById('lon1').value = e.latlng.lng;
+
+            getLocationName(e.latlng.lat, e.latlng.lng, function(location) {
+                alert("Titik 1 (baru): " + location);
+            });
+
+            clickCount = 1;
+        }
+    });
+
+    // Fungsi untuk menghitung bearing antara dua titik
+    function calculateBearing(lat1, lon1, lat2, lon2) {
+        var φ1 = lat1 * Math.PI / 180;
+        var φ2 = lat2 * Math.PI / 180;
+        var Δλ = (lon2 - lon1) * Math.PI / 180;
+
+        var y = Math.sin(Δλ) * Math.cos(φ2);
+        var x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+        var θ = Math.atan2(y, x);
+
+        return (θ * 180 / Math.PI + 360) % 360; // Bearing in degrees
+    }
+
+    // Menghitung jarak dan bearing
+    $('#calculateBtn').click(function() {
+        var lat1 = parseFloat($('#lat1').val());
+        var lon1 = parseFloat($('#lon1').val());
+        var lat2 = parseFloat($('#lat2').val());
+        var lon2 = parseFloat($('#lon2').val());
+
+        var R = 6371; // Radius of the Earth in km
+        var φ1 = lat1 * Math.PI / 180;
+        var φ2 = lat2 * Math.PI / 180;
+        var Δφ = (lat2 - lat1) * Math.PI / 180;
+        var Δλ = (lon2 - lon1) * Math.PI / 180;
+
+        var a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                Math.cos(φ1) * Math.cos(φ2) *
+                Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+        var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+        var distance = R * c; // Distance in km
+        var bearing = calculateBearing(lat1, lon1, lat2, lon2);
+
+        $('#result').html('Jarak: ' + distance.toFixed(2) + ' km<br> Bearing: ' + bearing.toFixed(2) + '°');
+    });
+
+    // Fungsi untuk menambahkan marker dan garis dari input manual
+function updateFromInput() {
+    var lat1 = parseFloat($('#lat1').val());
+    var lon1 = parseFloat($('#lon1').val());
+    var lat2 = parseFloat($('#lat2').val());
+    var lon2 = parseFloat($('#lon2').val());
+
+    if (!isNaN(lat1) && !isNaN(lon1)) {
+        if (marker1) map.removeLayer(marker1);
+        marker1 = L.marker([lat1, lon1]).addTo(map);
+        map.setView([lat1, lon1], 10); // Zoom ke marker 1
+    }
+
+    if (!isNaN(lat2) && !isNaN(lon2)) {
+        if (marker2) map.removeLayer(marker2);
+        marker2 = L.marker([lat2, lon2]).addTo(map);
+    }
+
+    if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
+        drawCurve(); // Menggambar garis jika kedua marker tersedia
+    }
+}
+
+// Event listener untuk memperbarui peta saat input diubah
+$('#lat1, #lon1, #lat2, #lon2').on('input', function() {
+    updateFromInput();
+});
+
+</script>
+
+</body>
+</html>
